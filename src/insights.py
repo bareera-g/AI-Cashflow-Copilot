@@ -17,59 +17,44 @@ raw data -> useful advice
 import pandas as pd
 
 
-def generate_insights(
-    df: pd.DataFrame,
-    recurring_df: pd.DataFrame,
-    forecast: dict
-) -> list[str]:
+import pandas as pd
+
+def generate_insights(df: pd.DataFrame, recurring_df: pd.DataFrame, forecast_dict: dict) -> list[str]:
     """
-    Create a list of human-readable insights from the analysis results.
+    Generate human-readable insights grounded in computed stats.
 
-    Insights generated:
-        1) Largest spending category (based on total negative amounts).
-        2) Count of recurring transactions detected.
-        3) Average monthly cashflow forecast.
-
-    Args:
-        df: Transaction DataFrame containing at least:
-            - amount (numeric)
-            - category (string)
-        recurring_df: DataFrame of recurring candidates containing:
-            - description, amount, count
-        forecast: Dictionary from forecast_cashflow containing:
-            - average_monthly_cashflow
-
-    Returns:
-        A list of strings, each string being one insight.
+    Expects forecast_dict to contain:
+      - current_balance (float)
+      - metrics: {min_balance, days_to_negative}
     """
     insights = []
 
-    expenses = df[(df["amount"] < 0) & (df["category"] != "Income")]
+    # Biggest spending category (expenses)
+    if "category" in df.columns:
+        exp = df[df["amount"] < 0].copy()
+        if not exp.empty:
+            by_cat = exp.groupby("category")["amount"].sum().sort_values()  # most negative first
+            biggest_cat = by_cat.index[0]
+            insights.append(f"Your biggest spending category is {biggest_cat}.")
 
-    if not expenses.empty:
-        spending_by_category = expenses.groupby("category")["amount"].sum()
-        top_spend_category = spending_by_category.idxmin()  # most negative = biggest spend
-        insights.append(f"Your biggest spending category is {top_spend_category}.")
+    # Recurring count
+    if recurring_df is not None and not getattr(recurring_df, "empty", True):
+        insights.append(f"You have {len(recurring_df)} recurring transactions worth reviewing.")
     else:
-        insights.append("No expenses detected in the dataset.")
+        insights.append("No recurring transactions detected yet.")
 
+    # Forecast risk insight (NEW)
+    metrics = (forecast_dict or {}).get("metrics", {})
+    days_to_neg = metrics.get("days_to_negative", None)
+    min_bal = metrics.get("min_balance", None)
+    cur_bal = (forecast_dict or {}).get("current_balance", None)
 
-    # Recurring transaction insight:
-    # If recurring_df has rows, that means we found repeating transactions.
-    if recurring_df is not None and not recurring_df.empty:
-        insights.append(
-            f"You have {len(recurring_df)} recurring transactions worth reviewing."
-        )
-    else:
-        insights.append("No clear recurring transactions detected.")
+    if cur_bal is not None:
+        insights.append(f"Current estimated cash balance is ${cur_bal:,.2f}.")
 
-    # Forecast insight: pull out the average monthly cashflow.
-    avg_cashflow = forecast.get("average_monthly_cashflow")
-
-    # Only add the forecast insight if the value is present.
-    if avg_cashflow is not None:
-        insights.append(f"Your average monthly cashflow is ${avg_cashflow}.")
-    else:
-        insights.append("Could not compute a monthly cashflow forecast.")
+    if days_to_neg is not None and min_bal is not None:
+        insights.append(f"Cash risk: projected to go negative in {days_to_neg} days (lowest projected balance ${min_bal:,.2f}).")
+    elif min_bal is not None:
+        insights.append(f"Lowest projected balance in the forecast horizon is ${min_bal:,.2f}.")
 
     return insights
